@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nhận diện khuôn mặt từ hình ảnh</title>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js" integrity="sha256-XWbslTONf8w2XOFUgbhZm69LbiLJpiS3bUyoIaZpplk=" crossorigin="anonymous"></script>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+        canvas, img {
+            max-width: 100%;
+            height: auto;
+        }
+        #result {
+            margin-top: 20px;
+            color: red;
+            font-weight: bold;
+            font-size: 20px;
+        }
+        #imageUpload {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Nhận diện khuôn mặt từ hình ảnh</h1>
+      <div id="result"></div>
+    <input type="file" id="imageUpload" accept="image/*">
+    <canvas id="canvas"></canvas>
+  
+
+    <script>
+        async function loadModels() {
+            try {
+                await Promise.all([
+                    faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
+                    faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+                    faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
+                    faceapi.nets.faceExpressionNet.loadFromUri('/models')
+                ]);
+                console.log("Tất cả các mô hình đã được tải thành công");
+            } catch (err) {
+                console.error("Lỗi khi tải mô hình: ", err);
+            }
+        }
+
+        window.onload = async () => {
+            await loadModels(); // Đảm bảo mô hình đã được tải
+
+            const imageUpload = document.getElementById('imageUpload');
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('2d');
+            const resultDiv = document.getElementById('result');
+
+            // Kiểm tra xem mô hình đã được tải chưa
+            if (!faceapi.nets.ssdMobilenetv1.params) {
+                console.error("Mô hình SsdMobilenetv1 chưa được tải.");
+                return;
+            }
+
+            // Tạo một số đặc trưng khuôn mặt mẫu để so sánh
+            const labeledFaceDescriptors = await loadLabeledImages();
+            const faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
+
+            imageUpload.addEventListener('change', async () => {
+                const file = imageUpload.files[0];
+                if (file) {
+                    const img = await faceapi.bufferToImage(file);
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    context.clearRect(0, 0, canvas.width, canvas.height);
+                    context.drawImage(img, 0, 0, img.width, img.height);
+
+                    try {
+                        const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options())
+                            .withFaceLandmarks()
+                            .withFaceExpressions()
+                            .withFaceDescriptors();
+
+                        const resizedDetections = faceapi.resizeResults(detections, { width: img.width, height: img.height });
+                        faceapi.draw.drawDetections(canvas, resizedDetections);
+                        faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+                        faceapi.draw.drawFaceExpressions(canvas, resizedDetections);
+
+                        // Xác nhận tên từ các khuôn mặt
+                        const results = resizedDetections.map(d => faceMatcher.findBestMatch(d.descriptor));
+                        resultDiv.innerHTML = ''; // Xóa nội dung cũ
+
+                        results.forEach((result, i) => {
+                            const { label, distance } = result;
+                            resultDiv.innerHTML += `<p>Khuôn mặt ${i + 1}: ${label} (${distance.toFixed(2)})</p>`;
+                        });
+                    } catch (err) {
+                        console.error("Lỗi khi phát hiện khuôn mặt: ", err);
+                    }
+                }
+            });
+
+            // Hàm tải các hình ảnh mẫu và tạo đặc trưng khuôn mặt
+            async function loadLabeledImages() {
+                const labels = await fetchLabels();
+                return Promise.all(
+                    labels.map(async label => {
+                        const descriptions = [];
+                        // Dùng fetch để lấy danh sách các ảnh từ thư mục của mỗi người
+                        const imageUrls = await fetchImageUrls(label); 
+                        for (const url of imageUrls) {
+                            try {
+                                const img = await faceapi.fetchImage(url);
+                                const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+                                if (detections) {
+                                    descriptions.push(detections.descriptor);
+                                }
+                            } catch (err) {
+                                console.error(`Lỗi khi tải hình ảnh ${url}: `, err);
+                            }
+                        }
+                        return new faceapi.LabeledFaceDescriptors(label, descriptions);
+                    })
+                );
+            }
+
+            // Hàm lấy danh sách các nhãn từ thư mục data
+            async function fetchLabels() {
+                return ['Rina Ishihara', 'Fukada Eimi', 'Takizawa Laura', 'Yua Mikami', 'ngo ba kha', 'nguyen trung kien', 'do quoc dung']; // Thay thế với danh sách thực tế của bạn
+            }
+
+            // Hàm lấy danh sách các URL ảnh từ thư mục của mỗi người
+            async function fetchImageUrls(label) {
+                // Đây là ví dụ giả định, bạn cần thực hiện một số cách để lấy danh sách URL ảnh từ thư mục
+                // Bạn có thể sử dụng một API của server để trả về danh sách các ảnh, hoặc có thể thêm URL ảnh vào mảng này
+                return [
+                    `data/${label}/1.jpeg`, 
+                    `data/${label}/2.jpeg`
+                ]; 
+            }
+        }
+    </script>
+</body>
+</html>
